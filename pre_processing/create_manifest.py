@@ -1,17 +1,16 @@
-#!/usr/bin/env python3
 """
 Build NSCLC manifest for image encoder training.
 
 Inputs:
   1) labeling.csv         (OS labels)
-       columns: patient_id, event_time_days, event_indicator, ...
+       columns: patient_id, event_time_days, event_indicator, cls_label, ...
 
   2) conversion_log.csv   (PET/CT NIfTI paths for kept pairs)
        columns: patient_id, pet_path, ct_path, ...
 
 Output:
   nsclc_manifest.csv with columns:
-    case_id, pet_path, ct_path, event_time, event_indicator
+    case_id, pet_path, ct_path, event_time, event_indicator, [optional cls_label]
 
 Example usage:
 
@@ -33,6 +32,7 @@ def build_manifest(
     event_time_col: str = "event_time_days",
     event_indicator_col: str = "event_indicator",
     conv_id_col: str = "patient_id",
+    cls_label_col: str = "cls_label",
 ):
     print(f"[info] Reading labeling from: {labeling_csv}")
     labeling = pd.read_csv(labeling_csv)
@@ -93,18 +93,22 @@ def build_manifest(
     merged = merged.dropna(subset=["pet_path", "ct_path"])
 
     # Rename to the requested schema
-    manifest = merged.rename(
-        columns={
-            label_id_col: "case_id",
-            event_time_col: "event_time",
-            event_indicator_col: "event_indicator",
-        }
-    )
+    rename_map = {
+        label_id_col: "case_id",
+        event_time_col: "event_time",
+        event_indicator_col: "event_indicator",
+    }
+    if cls_label_col in merged.columns:
+        rename_map[cls_label_col] = "cls_label"
+
+    manifest = merged.rename(columns=rename_map)
 
     # Select and order columns
-    manifest = manifest[
-        ["case_id", "pet_path", "ct_path", "event_time", "event_indicator"]
-    ]
+    cols = ["case_id", "pet_path", "ct_path", "event_time", "event_indicator"]
+    if "cls_label" in manifest.columns:
+        cols.append("cls_label")
+
+    manifest = manifest[cols]
 
     print(f"[info] Final manifest rows: {len(manifest)}")
 
@@ -157,6 +161,11 @@ def parse_args():
         default="patient_id",
         help="ID column in conversion_log.csv (default: patient_id)",
     )
+    p.add_argument(
+        "--cls-label-col",
+        default="cls_label",
+        help="Classification label column in labeling.csv (default: cls_label)",
+    )
 
     return p.parse_args()
 
@@ -171,4 +180,5 @@ if __name__ == "__main__":
         event_time_col=args.event_time_col,
         event_indicator_col=args.event_indicator_col,
         conv_id_col=args.conv_id_col,
+        cls_label_col=args.cls_label_col,
     )

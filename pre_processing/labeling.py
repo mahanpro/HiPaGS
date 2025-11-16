@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-NSCLC OS Label Builder (+ leakage checks)
+NSCLC OS Label Builder (+ leakage checks + classification label)
 
 Usage:
   python labeling.py \
@@ -12,7 +12,8 @@ Usage:
     --dod-col "Date of Death" \
     --dla-col "Date of Last Known Alive" \
     --status-col "Survival Status" \
-    --pairing-log "/home/azureuser/PITL/audit_and_convert/logs_after_conversion/pairing_log.csv"
+    --pairing-log "/home/azureuser/PITL/audit_and_convert/logs_after_conversion/pairing_log.csv" \
+    --cls-cutoff-years 3.0
 
 What it does
 - Optionally filters to patients present in pairing_log['patient_id'] if --pairing-log is given.
@@ -22,6 +23,9 @@ What it does
     Else: days from baseline to Date of Last Known Alive (censor).
 - Computes event indicator:
     1 if death date present OR status indicates deceased; 0 otherwise.
+- Builds a binary classification label cls_label for horizon-based OS:
+    cls_label = 1 if event_indicator == 1 and event_time_days <= cutoff_days
+              = 0 otherwise
 - Performs acceptance checks:
     * Flags negative or zero durations.
     * Reports censoring fraction.
@@ -33,6 +37,7 @@ Output CSV columns (per patient)
 - baseline_source  (one of: "PET", "CT", "PET|CT", "MISSING")
 - event_time_days
 - event_indicator  (1=death observed, 0=censored)
+- cls_label        (1=death before cutoff, 0 otherwise)
 - notes            (warnings like NEGATIVE_OR_ZERO_TIME or BASELINE_MISSING)
 
 Leakage note: Do NOT feed these columns as model inputs:
@@ -45,7 +50,7 @@ import numpy as np
 
 
 def _to_date(series):
-    # Robust datetime parser: returns pandas datetime (UTC-naive)
+    # Robust datetime parser: returns pandas datetime (UTC naive)
     return pd.to_datetime(series, errors="coerce", infer_datetime_format=True)
 
 
@@ -63,8 +68,8 @@ ALIVE_TOKENS = {"alive", "living", "0", "false", "no", "censored"}
 
 def km_median_time(durations, events):
     """
-    Kaplan-Meier median event time.
-    durations: array-like of positive times
+    Kaplan Meier median event time.
+    durations: array like of positive times
     events: boolean array, True for event observed, False for censored
     Returns (median_time_or_nan, reached_bool)
     """
@@ -100,7 +105,7 @@ def km_median_time(durations, events):
 
 def reverse_km_median_followup(durations, events):
     """
-    Reverse KM to estimate median follow-up time (censoring distribution).
+    Reverse KM to estimate median follow up time (censoring distribution).
     Treat censored as events, events as censored.
     """
     return km_median_time(durations, ~np.asarray(events, dtype=bool))
@@ -252,6 +257,16 @@ def main():
             "appear in pairing_log['patient_id'] are kept."
         ),
     )
+    parser.add_argument(
+        "--cls-cutoff-years",
+        type=float,
+        default=3.0,
+        help=(
+            "Classification horizon in years for cls_label. "
+            "Default 3.0, meaning cls_label = 1 if death occurs "
+            "within 3 years from baseline, else 0."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -290,11 +305,21 @@ def main():
         status_col=args.status_col,
     )
 
+    # Add classification label based on cutoff
+    cutoff_days = int(round(args.cls_cutoff_years * 365.25))
+    cls = (
+        (labels["event_indicator"] == 1) & (labels["event_time_days"] <= cutoff_days)
+    ).astype(int)
+    labels["cls_label"] = cls
+    labels["cls_cutoff_days"] = cutoff_days
+
     labels.to_csv(args.out_csv, index=False)
 
     print("=== OS Label Summary ===")
     for k, v in summary.items():
         print(f"{k}: {v}")
+    print(f"cls_cutoff_years: {args.cls_cutoff_years}")
+    print(f"cls_cutoff_days:  {cutoff_days}")
     print("\nWrote labels to:", args.out_csv)
 
 

@@ -134,7 +134,7 @@ def get_nsclc_transforms(
 
 
 class NsclcImageDataset(Dataset):
-    def __init__(self, manifest_csv, transforms=None):
+    def __init__(self, manifest_csv, transforms=None, cutoff_days=None):
         df = pd.read_csv(manifest_csv)
         required_cols = {
             "case_id",
@@ -149,6 +149,16 @@ class NsclcImageDataset(Dataset):
 
         self.df = df
         self.transforms = transforms
+        self.cutoff_days = cutoff_days
+
+        # If cls_label is already in the manifest, use it
+        self.has_cls_label = "cls_label" in df.columns
+
+        if (not self.has_cls_label) and (cutoff_days is None):
+            raise ValueError(
+                "No 'cls_label' column in manifest and cutoff_days is None. "
+                "Either precompute cls_label, or pass cutoff_days to compute on the fly."
+            )
 
     def __len__(self):
         return len(self.df)
@@ -160,6 +170,15 @@ class NsclcImageDataset(Dataset):
         ct_path = row["ct_path"]
         event_time = float(row["event_time"])
         event_indicator = int(row["event_indicator"])
+
+        # Build classification label
+        if self.has_cls_label:
+            cls_label = int(row["cls_label"])
+        else:
+            # compute from time + event
+            # label = 1 if death before cutoff, else 0
+            cutoff = float(self.cutoff_days)
+            cls_label = int((event_indicator == 1) and (event_time <= cutoff))
 
         data = {
             "pet": pet_path,
@@ -175,4 +194,91 @@ class NsclcImageDataset(Dataset):
             "image": image,
             "time": torch.tensor(event_time, dtype=torch.float32),
             "event": torch.tensor(event_indicator, dtype=torch.float32),
+            "label": torch.tensor(cls_label, dtype=torch.float32),  # for BCEWithLogits
+        }
+
+
+class NsclcMultimodalDataset(Dataset):
+    def __init__(
+        self,
+        manifest_csv: str,
+        ehr_csv: str,
+        transforms: Compose | None = None,
+        cutoff_days: float | None = None,
+    ):
+        man = pd.read_csv(manifest_csv)
+        ehr = pd.read_csv(ehr_csv)
+
+        # assume manifest case_id matches ehr patient_id string
+        man["case_id"] = man["case_id"].astype(str)
+        ehr["patient_id"] = ehr["patient_id"].astype(str)
+
+        df = man.merge(
+            ehr,
+            left_on="case_id",
+            right_on="patient_id",
+            how="inner",
+            validate="one_to_one",
+        )
+
+        self.df = df
+        self.transforms = transforms
+        self.cutoff_days = cutoff_days
+
+        # which columns are EHR features
+        self.ehr_cols = [
+            c
+            for c in df.columns
+            if c
+            not in [
+                "case_id",
+                "patient_id",
+                "pet_path",
+                "ct_path",
+                "event_time",
+                "event_indicator",
+                "cls_label",
+            ]
+        ]
+
+        self.has_cls_label = "cls_label" in df.columns
+        if (not self.has_cls_label) and (cutoff_days is None):
+            raise ValueError(
+                "No 'cls_label' column in manifest and cutoff_days is None."
+            )
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+        case_id = row["case_id"]
+        pet_path = row["pet_path"]
+        ct_path = row["ct_path"]
+        event_time = float(row["event_time"])
+        event_indicator = int(row["event_indicator"])
+
+        if self.has_cls_label:
+            cls_label = int(row["cls_label"])
+        else:
+            cutoff = float(self.cutoff_days)
+            cls_label = int((event_indicator == 1) and (event_time <= cutoff))
+
+        data = {"pet": pet_path, "ct": ct_path}
+        if self.transforms is not None:
+            data = self.transforms(data)
+        image = data["image"]  # [2, D, H, W]
+
+        ehr_feats = torch.tensor(
+            row[self.ehr_cols].values.astype("float32"),
+            dtype=torch.float32,
+        )
+
+        return {
+            "case_id": case_id,
+            "image": image,
+            "ehr": ehr_feats,
+            "time": torch.tensor(event_time, dtype=torch.float32),
+            "event": torch.tensor(event_indicator, dtype=torch.float32),
+            "label": torch.tensor(cls_label, dtype=torch.float32),
         }
