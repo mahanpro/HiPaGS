@@ -1,3 +1,5 @@
+"This is the embedding on which we build the kNN graph and run GraphSAGE"
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

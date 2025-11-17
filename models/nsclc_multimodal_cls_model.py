@@ -1,7 +1,9 @@
+"This is the multimodal early-death classifier and base embedding for concepts"
+
 import torch
 import torch.nn as nn
 
-from encoders.nsclc_image_encoder import ImageEncoder3D
+from encoders.nsclc_image_encoder import NsclcImageEncoder
 from encoders.nsclc_ehr_encoder import EhrMLP
 from heads.classification_head import BinaryClsHead
 
@@ -11,7 +13,7 @@ class NsclcMultimodalClsModel(nn.Module):
         self, ehr_input_dim: int, img_emb_dim: int = 512, ehr_emb_dim: int = 128
     ):
         super().__init__()
-        self.img_encoder = ImageEncoder3D(out_dim=img_emb_dim)
+        self.img_encoder = NsclcImageEncoder()
         self.ehr_encoder = EhrMLP(input_dim=ehr_input_dim, hidden=ehr_emb_dim)
         self.cls_head = BinaryClsHead(in_dim=img_emb_dim + ehr_emb_dim)
 

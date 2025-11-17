@@ -2,9 +2,9 @@ import torch
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 
-from nsclc_dataset import NsclcImageDataset, get_nsclc_transforms
-from nsclc_image_surv_model import NsclcImageSurvModel
-from survival_head import cox_ph_loss
+from dataset.nsclc_dataset import NsclcImageDataset, get_nsclc_transforms
+from models.nsclc_image_surv_model import NsclcImageSurvModel
+from heads.survival_head import cox_ph_loss
 
 
 def train_nsclc_image_encoder(
@@ -15,7 +15,9 @@ def train_nsclc_image_encoder(
     device: str = "cuda",
 ):
 
-    ds = NsclcImageDataset(manifest_csv, transforms=get_nsclc_transforms())
+    ds = NsclcImageDataset(
+        manifest_csv, transforms=get_nsclc_transforms(train=True), cutoff_days=1096
+    )
     loader = DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=4)
 
     model = NsclcImageSurvModel(emb_dim=512).to(device)

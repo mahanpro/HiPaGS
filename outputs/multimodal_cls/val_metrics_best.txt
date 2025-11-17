@@ -1,0 +1,7 @@
+loss=0.5567
+AUROC=0.6970
+AUPRC=0.3694
+Accuracy=0.7857
+Precision=0.0000
+Recall=0.0000
+F1=0.0000

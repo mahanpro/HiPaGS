@@ -187,7 +187,11 @@ class NsclcImageDataset(Dataset):
         if self.transforms is not None:
             data = self.transforms(data)
 
-        image = data["image"]  # [2, D, H, W]
+        img = data["image"]  # [2, D, H, W]
+        if isinstance(img, torch.Tensor):
+            image = img.float().contiguous()
+        else:
+            image = torch.as_tensor(img, dtype=torch.float32).contiguous()
 
         return {
             "case_id": case_id,
@@ -267,7 +271,11 @@ class NsclcMultimodalDataset(Dataset):
         data = {"pet": pet_path, "ct": ct_path}
         if self.transforms is not None:
             data = self.transforms(data)
-        image = data["image"]  # [2, D, H, W]
+        img = data["image"]  # [2, D, H, W]
+        if isinstance(img, torch.Tensor):
+            image = img.float().contiguous()
+        else:
+            image = torch.as_tensor(img, dtype=torch.float32).contiguous()
 
         ehr_feats = torch.tensor(
             row[self.ehr_cols].values.astype("float32"),
